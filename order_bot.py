@@ -1,9 +1,12 @@
 import os
 import random
+import sys
+import logging
 from decimal import Decimal, getcontext
 
 from binance.client import Client
 from binance.enums import ORDER_TYPE_LIMIT, TIME_IN_FORCE_GTC
+from binance.exceptions import BinanceAPIException
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -37,16 +40,18 @@ def get_binance_order(symbol, amount_usdt, price):
     Создаёт ордер в testnet Binance.
     """
     quantity = get_quantity(symbol, Decimal(amount_usdt))
-    print(data['side'], symbol, f'на {amount_usdt}$')
-    order = client.create_test_order(
-        symbol=symbol,
-        side=data['side'],
-        type=ORDER_TYPE_LIMIT,
-        timeInForce=TIME_IN_FORCE_GTC,
-        quantity=quantity,
-        price=price
-    )
-    return order
+    try:
+        order = client.create_order(
+            symbol=symbol,
+            side=data['side'],
+            type=ORDER_TYPE_LIMIT,
+            timeInForce=TIME_IN_FORCE_GTC,
+            quantity=quantity,
+            price=price
+        )
+        return order
+    except BinanceAPIException as e:
+        logger.error(f"Ошибка в создании ордера: {e}")
 
 
 def get_amounts_usdt(volume, number, spread):
@@ -57,13 +62,12 @@ def get_amounts_usdt(volume, number, spread):
     getcontext().prec = 5
     core_value = Decimal(volume) / Decimal(number)
     amounts = []
-    for _ in range(4):
+    for _ in range(number - 1):
         random_value = Decimal(random.uniform(-spread, spread))
         amounts.append(core_value + random_value)
 
     last_value = Decimal(volume) - sum(amounts)
     amounts.append(last_value)
-    print(sum(amounts))
     return amounts
 
 
@@ -74,9 +78,23 @@ def get_prices(min_pr, max_pr, number):
     return [round(random.uniform(min_pr, max_pr), 2) for _ in range(number)]
 
 
-if __name__ == '__main__':
+def main():
     volume, number = data['volume'], data['number']
     amounts = get_amounts_usdt(volume, number, data['amountDif'])
     prices = get_prices(data['priceMin'], data['priceMax'], number)
-    for i in range(number):
+    for i in range(len(prices)):
         get_binance_order(data['symbol'], amounts[i], prices[i])
+        logger.info(
+            f"Создан ордер: {data['side']} {data['symbol']} на {amounts[i]}$"
+        )
+
+
+if __name__ == '__main__':
+    log_format = '%(asctime)s - %(levelname)s - %(message)s'
+    logging.basicConfig(
+        level=logging.DEBUG,
+        format=(log_format),
+    )
+    handler = logging.StreamHandler(sys.stdout)
+    logger = logging.getLogger(__name__)
+    main()
